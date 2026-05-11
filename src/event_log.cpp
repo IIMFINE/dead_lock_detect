@@ -1,37 +1,48 @@
 #include "event_log.h"
+#include "backend.h"
 #include "backtrace.h"
 #include "bypass.h"
+#include "config.h"
 #include "real_symbols.h"
+#include "ring_buffer.h"
 #include "thread_state.h"
 
+#include <atomic>
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
-#include <string>
-#include <unistd.h>
+#include <cstring>
 #include <pthread.h>
+#include <sched.h>
+#include <string>
 #include <time.h>
+#include <unistd.h>
 
 namespace dl {
 
-static FILE* g_fp = nullptr;
-static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
+namespace {
 
-bool log_enabled() { return g_fp != nullptr; }
+FILE* g_fp = nullptr;
+std::atomic<bool> g_log_enabled{false};
 
-static std::string escape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '\\': out += "\\\\"; break;
-            case '\t': out += "\\t";  break;
-            case '\n': out += "\\n";  break;
-            default:   out += c;
-        }
-    }
-    return out;
-}
+constexpr int      kProducerSpinBeforeSleep = 32;
+constexpr uint32_t kProducerSleepUs = 50;
+
+// 与 backend.cpp 内的 EventHdrBin 严格一致。
+struct EventHdrBin {
+    uint64_t ts_ns;
+    uint64_t tid;
+    uint64_t addr;
+    int64_t  rc_or_flags;
+    uint8_t  op;
+    uint8_t  kind;
+    uint16_t frame_cnt;
+    uint32_t _pad;
+};
+static_assert(sizeof(EventHdrBin) == 40, "EventHdrBin layout mismatch");
+
+}  // namespace
+
+bool log_enabled() { return g_log_enabled.load(std::memory_order_acquire); }
 
 void log_init(const char* path) {
     if (g_fp) return;
@@ -57,15 +68,39 @@ void log_init(const char* path) {
     setvbuf(g_fp, nullptr, _IOFBF, 1 << 20);
     fprintf(g_fp, "HEADER\tDEADLOCK_EVENTS\tv2\tpid=%d\n", getpid());
     fprintf(stderr, "[deadlock] event log: %s\n", final_path);
+
+    if (!backend_start(g_fp)) {
+        fclose(g_fp);
+        g_fp = nullptr;
+        return;
+    }
+    g_log_enabled.store(true, std::memory_order_release);
 }
 
 void log_close() {
-    if (!g_fp) return;
-    real::pthread_mutex_lock(&g_mu);
-    fflush(g_fp);
-    fclose(g_fp);
-    g_fp = nullptr;
-    real::pthread_mutex_unlock(&g_mu);
+    if (!g_log_enabled.load(std::memory_order_acquire)) return;
+    g_log_enabled.store(false, std::memory_order_release);
+
+    backend_request_shutdown();
+    backend_join();
+    backend_final_drain();
+
+    if (g_fp) {
+        fflush(g_fp);
+        fclose(g_fp);
+        g_fp = nullptr;
+    }
+}
+
+// fork-child 路径：不 join backend，直接释放状态。
+void log_close_fast_for_fork_child() {
+    if (!g_log_enabled.load(std::memory_order_acquire) && !g_fp) return;
+    g_log_enabled.store(false, std::memory_order_release);
+    backend_fork_child_reset();
+    if (g_fp) {
+        fclose(g_fp);
+        g_fp = nullptr;
+    }
 }
 
 static uint64_t now_ns() {
@@ -76,45 +111,47 @@ static uint64_t now_ns() {
 
 void log_event(EvOp op, EvKind kind, const void* addr,
                long rc_or_flags, int frame_skip, int frame_depth) {
-    if (!g_fp) return;
-    // 整个日志路径期间关闭劫持：libbacktrace/malloc/stdio 都可能再次进入
-    // pthread_mutex_lock，不能把这些自身的加锁也记录到依赖图。
+    if (!g_log_enabled.load(std::memory_order_acquire)) return;
     ScopedBypass _bp;
 
     Backtrace bt = capture_backtrace(frame_skip, frame_depth);
+    uint16_t frame_cnt = static_cast<uint16_t>(bt.size());
 
-    std::string buf;
-    buf.reserve(256 + bt.size() * 96);
-    char line[256];
-    snprintf(line, sizeof(line),
-             "E\t%lu\t%lu\t%d\t%d\t0x%lx\t%ld\t%zu\n",
-             (unsigned long)now_ns(),
-             (unsigned long)current_tid(),
-             static_cast<int>(op),
-             static_cast<int>(kind),
-             (unsigned long)reinterpret_cast<uintptr_t>(addr),
-             rc_or_flags,
-             bt.size());
-    buf.append(line);
-    for (uintptr_t pc : bt) {
-        SymbolInfo s = symbolize(pc);
-        snprintf(line, sizeof(line), "F\t0x%lx\t", (unsigned long)pc);
-        buf.append(line);
-        buf.append(escape(s.function));
-        buf.append("\t");
-        buf.append(escape(s.module));
-        buf.append("\t");
-        snprintf(line, sizeof(line), "0x%lx\t", (unsigned long)s.offset);
-        buf.append(line);
-        buf.append(escape(s.file));
-        buf.append("\t");
-        snprintf(line, sizeof(line), "%d\n", s.line);
-        buf.append(line);
+    ThreadRing* ring = current_ring();
+    if (!ring) return;  // 内存分配失败；静默丢
+
+    const size_t payload = sizeof(EventHdrBin) + sizeof(uintptr_t) * frame_cnt;
+
+    void* dst = nullptr;
+    int spins = 0;
+    for (;;) {
+        dst = ring->reserve(payload);
+        if (dst) break;
+        if (spins < kProducerSpinBeforeSleep) {
+            sched_yield();
+            spins++;
+        } else {
+            struct timespec ts{};
+            ts.tv_nsec = kProducerSleepUs * 1000;
+            clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
+            spins = 0;
+        }
     }
 
-    real::pthread_mutex_lock(&g_mu);
-    fwrite(buf.data(), 1, buf.size(), g_fp);
-    real::pthread_mutex_unlock(&g_mu);
+    EventHdrBin hdr{};
+    hdr.ts_ns       = now_ns();
+    hdr.tid         = current_tid();
+    hdr.addr        = reinterpret_cast<uintptr_t>(addr);
+    hdr.rc_or_flags = static_cast<int64_t>(rc_or_flags);
+    hdr.op          = static_cast<uint8_t>(op);
+    hdr.kind        = static_cast<uint8_t>(kind);
+    hdr.frame_cnt   = frame_cnt;
+    std::memcpy(dst, &hdr, sizeof(hdr));
+    if (frame_cnt > 0) {
+        std::memcpy(static_cast<char*>(dst) + sizeof(hdr),
+                    bt.data(), sizeof(uintptr_t) * frame_cnt);
+    }
+    ring->commit();
 }
 
 }  // namespace dl

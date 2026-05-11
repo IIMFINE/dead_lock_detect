@@ -60,7 +60,7 @@ backend 线程（单实例，启动于 log_init）
 - 两个 `std::atomic<uint64_t>` `head`（生产者单写）、`tail`（消费者单写）：**单调递增的虚拟字节偏移**，物理位置 = `pos & (capacity - 1)`
   - 生产者 `commit`：`head.store(new_head, release)`；读 tail 用 `tail.load(acquire)` 判定 `readable_space = capacity - (head - tail)`
   - 消费者 `consume`：`tail.store(new_tail, release)`；读 head 用 `head.load(acquire)` 判定 `readable = head - tail`
-- 跨边界处理：每个事件帧前置 1 字节 `tag`（`0x01` = 真事件，`0x02` = padding-skip-to-end）。`reserve(n)` 时若 `capacity - (head & (capacity-1)) < 1 + n`（即剩余连续段塞不下"tag + 帧"），先以 `tag=0x02` + 一个 `uint32_t skip_len` 的小记录把 head 推到 capacity 边界，再正式 reserve 头部空间。消费者按 tag 分支：`0x02` → 跳 `skip_len` 字节、不输出；`0x01` → 按 `EventHdr` 解码
+- 跨边界处理：每个事件帧前置 1 字节 `tag`（`0x01` = 真事件，`0x02` = padding-skip-byte）。`reserve(n)` 时若 `capacity - (head & (capacity-1)) < 1 + n`（即剩余连续段塞不下"tag + 帧"），先用若干字节 `0x02` 把 head 推到 capacity 边界，再正式 reserve 头部空间。消费者按 tag 分支：`0x02` → tail += 1，重复直到看到非 padding；`0x01` → 按 `EventHdr` 解码。每个 padding 仅 1 字节，确保即使尾部只剩 1 字节也能消化掉
 - 接口：
   - `bool reserve(size_t n, void*& out) noexcept`：尝试为一个真事件预留 `1 + n` 字节（含 tag），返回事件主体的指针；空间不足返回 false（不阻塞，由调用方决定重试）。跨边界 padding 由 reserve 内部自动处理
   - `void commit() noexcept`：发布上一次 reserve 的字节数（release head）
@@ -131,7 +131,7 @@ struct __attribute__((packed)) EventHdr {
 // 后接 frame_cnt 个 uintptr_t PC
 ```
 
-总长 = 32 + 8 × frame_cnt 字节；bt_depth=16 时 = 160 B。
+总长 = 40 + 8 × frame_cnt 字节（header 40 B：32 B 定长 + 4 B op/kind/frame_cnt + 4 B pad）；bt_depth=16 时 = 168 B。
 
 ### ThreadState — 增加 ring 句柄
 

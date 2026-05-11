@@ -34,10 +34,12 @@ message(STATUS "libbacktrace: ${LIBBACKTRACE_LIB} (inc=${LIBBACKTRACE_INCLUDE_DI
 add_library(deadlock_detect SHARED
     src/real_symbols.cpp
     src/backtrace.cpp
+    src/bypass.cpp
     src/thread_state.cpp
     src/config.cpp
     src/event_types.cpp
     src/event_log.cpp
+    src/backend.cpp
     src/interpose_mutex.cpp
     src/interpose_rwlock.cpp
     src/interpose_spin.cpp
@@ -54,7 +56,7 @@ add_executable(deadlock_analyze
     src/analyzer_main.cpp
     src/event_types.cpp
     src/backtrace.cpp
-    src/thread_state.cpp
+    src/bypass.cpp
     src/config.cpp
     src/real_symbols.cpp  # backtrace.cpp 引用了 real::，但分析器自身不用劫持；链接需要
 )
