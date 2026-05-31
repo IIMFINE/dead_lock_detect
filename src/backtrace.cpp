@@ -18,13 +18,34 @@
 namespace dl {
 
 // ------------- 符号缓存（pc -> SymbolInfo） -------------
+//
+// 同一个进程里 PC -> 符号的映射在采集期内是稳定的；典型程序不同 PC 数量
+// 远小于事件数，命中率拉满后 backend 的 symbolize 几乎零成本。
+//
+// 三个调用方：runtime 的 backend 线程、main 线程的 dump 路径、离线分析器
+// （analyzer 进程内可能由多个解析路径并发触发）。统一用一把 std::mutex
+// 保护，与 g_mod_mu 同款模式。
+//   - runtime backend 线程整段 g_bypass_depth=1000，std::mutex 底层的
+//     pthread_mutex_lock 会被我们的 wrapper 短路到 real:: 实现，不会回环；
+//   - analyzer 进程没被 LD_PRELOAD，wrapper 不存在，更不需要 bypass。
+static std::mutex                                g_sym_mu;
 static std::unordered_map<uintptr_t, SymbolInfo> g_sym_cache;
 
+static bool symbol_cache_lookup(uintptr_t pc, SymbolInfo& out) {
+    std::lock_guard<std::mutex> lk(g_sym_mu);
+    auto it = g_sym_cache.find(pc);
+    if (it == g_sym_cache.end()) return false;
+    out = it->second;
+    return true;
+}
+
 void symbol_cache_put(uintptr_t pc, SymbolInfo info) {
+    std::lock_guard<std::mutex> lk(g_sym_mu);
     g_sym_cache[pc] = std::move(info);
 }
 
 void symbol_cache_clear() {
+    std::lock_guard<std::mutex> lk(g_sym_mu);
     g_sym_cache.clear();
 }
 
@@ -111,8 +132,8 @@ void syminfo_cb(void* data, uintptr_t /*pc*/, const char* symname,
 
 // ------------- symbolize -------------
 SymbolInfo symbolize(uintptr_t pc) {
-    auto it = g_sym_cache.find(pc);
-    if (it != g_sym_cache.end()) return it->second;
+    SymbolInfo cached;
+    if (symbol_cache_lookup(pc, cached)) return cached;
 
     SymbolInfo s{};
     s.pc = pc;
@@ -151,6 +172,9 @@ SymbolInfo symbolize(uintptr_t pc) {
         }
     }
 
+    // 写回 cache：同一 PC 后续解析直接走 lookup，跳过 dladdr / DWARF。
+    // 多个线程可能同时算同一个 PC，最后一次写覆盖前面的，结果等价。
+    symbol_cache_put(pc, s);
     return s;
 }
 

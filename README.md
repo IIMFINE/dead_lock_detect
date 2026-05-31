@@ -76,7 +76,7 @@ nodes=2 edges=2 cycles=1
 |---|---|---|
 | `DEADLOCK_TRACE` | `/tmp/deadlock.<pid>.trace` | trace 输出路径，支持 `%p` 替换为 pid |
 | `DEADLOCK_DISABLE` | off | `=1` 完全透传不采集 |
-| `DEADLOCK_BACKTRACE_DEPTH` | 16 | 栈深 |
+| `DEADLOCK_BACKTRACE_DEPTH` | 5 | 栈深 |
 | `DEADLOCK_SKIP_FRAMES` | 3 | 顶部跳帧（跳过劫持函数自身） |
 | `DEADLOCK_MAX_LOCKS` | 1000000 | 元数据条目上限 |
 | `DEADLOCK_MAX_EDGES` | 2000000 | 边条目上限 |

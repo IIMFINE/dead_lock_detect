@@ -100,6 +100,12 @@ target_link_libraries(bench_prodcons PRIVATE pthread)
 target_compile_options(bench_prodcons PRIVATE -O2)
 set_target_properties(bench_prodcons PROPERTIES ENABLE_EXPORTS ON)
 
+# 单独量 glibc ::backtrace() 自身耗时
+add_executable(bench_backtrace bench_backtrace.cpp)
+target_link_libraries(bench_backtrace PRIVATE pthread)
+target_compile_options(bench_backtrace PRIVATE -O2 -fno-omit-frame-pointer)
+set_target_properties(bench_backtrace PROPERTIES ENABLE_EXPORTS ON)
+
 # ThreadRing 独立单测（不链接 deadlock_detect）
 add_executable(test_ring_buffer test_ring_buffer.cpp)
 target_link_libraries(test_ring_buffer PRIVATE pthread)

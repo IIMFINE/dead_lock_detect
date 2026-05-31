@@ -42,7 +42,7 @@ static bool is_pow2(int v) { return v > 0 && (v & (v - 1)) == 0; }
 void init_config_from_env() {
     g_cfg.disabled        = env_flag("DEADLOCK_DISABLE");
     g_cfg.trace_path      = getenv("DEADLOCK_TRACE");
-    g_cfg.bt_depth        = env_int("DEADLOCK_BACKTRACE_DEPTH", 16);
+    g_cfg.bt_depth        = env_int("DEADLOCK_BACKTRACE_DEPTH", 5);
     g_cfg.bt_skip         = env_int("DEADLOCK_SKIP_FRAMES", 3);
     g_cfg.max_locks       = env_int("DEADLOCK_MAX_LOCKS", 1'000'000);
     g_cfg.max_edges       = env_int("DEADLOCK_MAX_EDGES", 2'000'000);
