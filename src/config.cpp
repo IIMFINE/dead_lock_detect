@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <signal.h>
@@ -36,14 +37,28 @@ static int parse_signal(const char* s) {
     return 0;
 }
 
+static bool is_pow2(int v) { return v > 0 && (v & (v - 1)) == 0; }
+
 void init_config_from_env() {
     g_cfg.disabled        = env_flag("DEADLOCK_DISABLE");
     g_cfg.trace_path      = getenv("DEADLOCK_TRACE");
-    g_cfg.bt_depth        = env_int("DEADLOCK_BACKTRACE_DEPTH", 16);
+    g_cfg.bt_depth        = env_int("DEADLOCK_BACKTRACE_DEPTH", 5);
     g_cfg.bt_skip         = env_int("DEADLOCK_SKIP_FRAMES", 3);
     g_cfg.max_locks       = env_int("DEADLOCK_MAX_LOCKS", 1'000'000);
     g_cfg.max_edges       = env_int("DEADLOCK_MAX_EDGES", 2'000'000);
     g_cfg.dump_signal     = parse_signal(getenv("DEADLOCK_DUMP_ON_SIGNAL"));
+
+    int ring = env_int("DEADLOCK_RING_BYTES", 1 << 20);
+    constexpr int kRingMin = 4 * 1024;
+    constexpr int kRingMax = 256 * 1024 * 1024;
+    if (!is_pow2(ring) || ring < kRingMin || ring > kRingMax) {
+        fprintf(stderr,
+                "[deadlock] DEADLOCK_RING_BYTES=%d invalid (need power-of-2 in [%d, %d]); "
+                "using default %d\n",
+                ring, kRingMin, kRingMax, 1 << 20);
+        ring = 1 << 20;
+    }
+    g_cfg.ring_bytes = ring;
 }
 
 }  // namespace dl

@@ -12,6 +12,8 @@ set(TESTS
     test_std_unique_lock_ab_ba
     test_std_scoped_lock
     test_std_shared_mutex_read_read
+    test_async_pipeline
+    test_async_fork
 )
 
 foreach(t ${TESTS})
@@ -65,3 +67,46 @@ add_dl_test(test_std_mutex_ab_ba        "'-- Cycle'")
 add_dl_test(test_std_unique_lock_ab_ba  "'-- Cycle'")
 add_dl_test_no_cycle(test_std_scoped_lock)
 add_dl_test_no_cycle(test_std_shared_mutex_read_read)
+
+# 异步管道回归：8 线程 × 100k 次 lock/unlock，断言 trace 中 LOCK_PRE/LOCK_POST 行数对齐
+# op 值参见 src/event_types.h：LOCK_PRE=3, LOCK_POST=4
+add_test(NAME test_async_pipeline COMMAND bash -c
+    "set -e; \
+     mkdir -p ${DL_OUT_DIR}; \
+     TRACE=${DL_OUT_DIR}/dl_test_async_pipeline.trace; \
+     rm -f $TRACE; \
+     LD_PRELOAD=${LIB_PATH} DEADLOCK_TRACE=$TRACE $<TARGET_FILE:test_async_pipeline>; \
+     PRE=$(awk -F'\\t' '$1==\"E\" && $4==\"3\"' $TRACE | wc -l); \
+     POST=$(awk -F'\\t' '$1==\"E\" && $4==\"4\"' $TRACE | wc -l); \
+     echo PRE=$PRE POST=$POST; \
+     [ \"$PRE\" = \"800000\" ] || { echo FAIL pre; exit 1; }; \
+     [ \"$POST\" = \"800000\" ] || { echo FAIL post; exit 1; }")
+
+# fork 回归：父进程 trace 有事件、子进程不创建独立 trace 也不写父 trace
+add_test(NAME test_async_fork COMMAND bash -c
+    "set -e; \
+     mkdir -p ${DL_OUT_DIR}; \
+     TRACE=${DL_OUT_DIR}/dl_test_async_fork.trace; \
+     rm -f $TRACE $TRACE.*; \
+     LD_PRELOAD=${LIB_PATH} DEADLOCK_TRACE=$TRACE $<TARGET_FILE:test_async_fork>; \
+     LINES=$(wc -l < $TRACE); \
+     echo LINES=$LINES; \
+     [ \"$LINES\" -gt 0 ] || { echo FAIL empty; exit 1; }; \
+     ls $TRACE.* 2>/dev/null && { echo FAIL child trace exists; exit 1; } || true")
+
+# benchmark 程序：不进入 ctest，由外部脚本调用
+add_executable(bench_prodcons bench_prodcons.cpp)
+target_link_libraries(bench_prodcons PRIVATE pthread)
+target_compile_options(bench_prodcons PRIVATE -O2)
+set_target_properties(bench_prodcons PROPERTIES ENABLE_EXPORTS ON)
+
+# 单独量 glibc ::backtrace() 自身耗时
+add_executable(bench_backtrace bench_backtrace.cpp)
+target_link_libraries(bench_backtrace PRIVATE pthread)
+target_compile_options(bench_backtrace PRIVATE -O2 -fno-omit-frame-pointer)
+set_target_properties(bench_backtrace PROPERTIES ENABLE_EXPORTS ON)
+
+# ThreadRing 独立单测（不链接 deadlock_detect）
+add_executable(test_ring_buffer test_ring_buffer.cpp)
+target_link_libraries(test_ring_buffer PRIVATE pthread)
+add_test(NAME test_ring_buffer COMMAND test_ring_buffer)

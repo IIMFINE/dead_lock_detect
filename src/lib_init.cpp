@@ -3,6 +3,7 @@
 #include "event_log.h"
 #include "thread_state.h"
 #include "bypass.h"
+#include "backend.h"
 
 #include <pthread.h>
 #include <signal.h>
@@ -16,13 +17,13 @@ namespace {
 
 void atfork_child() {
     dl::reset_thread_state_for_fork();
-    // 子进程继续写同一个 FILE* 会冲突；简单起见：子进程关闭句柄不再记录
-    dl::log_close();
+    // 子进程不继承 backend 线程，走 fast-close：跳过 join 直接释放
+    dl::log_close_fast_for_fork_child();
 }
 
 void signal_flush_handler(int) {
-    // 允许 kill -USR2 强制 flush
-    dl::log_close();
+    // 只设 flag，由 backend 主循环在下一轮 fflush
+    dl::backend_request_flush();
 }
 
 std::atomic<int> g_closed{0};

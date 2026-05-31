@@ -10,6 +10,7 @@ struct Config {
     int  max_locks         = 1'000'000;
     int  max_edges         = 2'000'000;
     int  dump_signal       = 0;         // 0 表示不注册
+    int  ring_bytes        = 1 << 20;   // DEADLOCK_RING_BYTES, 必须 2 的幂
 };
 
 const Config& config();
