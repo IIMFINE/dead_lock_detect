@@ -3,6 +3,7 @@
 #include "backtrace.h"
 #include "bypass.h"
 #include "config.h"
+#include "profile.h"
 #include "real_symbols.h"
 #include "ring_buffer.h"
 #include "thread_state.h"
@@ -23,9 +24,6 @@ namespace {
 
 FILE* g_fp = nullptr;
 std::atomic<bool> g_log_enabled{false};
-
-constexpr int      kProducerSpinBeforeSleep = 32;
-constexpr uint32_t kProducerSleepUs = 50;
 
 // 与 backend.cpp 内的 EventHdrBin 严格一致。
 struct EventHdrBin {
@@ -113,45 +111,58 @@ void log_event(EvOp op, EvKind kind, const void* addr,
                long rc_or_flags, int frame_skip, int frame_depth) {
     if (!g_log_enabled.load(std::memory_order_acquire)) return;
     ScopedBypass _bp;
+    DL_PROFILE_SCOPE("log_event/total");
 
-    Backtrace bt = capture_backtrace(frame_skip, frame_depth);
+    Backtrace bt;
+    {
+        DL_PROFILE_SCOPE("log_event/backtrace");
+        bt = capture_backtrace(frame_skip, frame_depth);
+    }
     uint16_t frame_cnt = static_cast<uint16_t>(bt.size());
 
-    ThreadRing* ring = current_ring();
+    ThreadRing* ring;
+    {
+        DL_PROFILE_SCOPE("log_event/current_ring");
+        ring = current_ring();
+    }
     if (!ring) return;  // 内存分配失败；静默丢
 
     const size_t payload = sizeof(EventHdrBin) + sizeof(uintptr_t) * frame_cnt;
 
     void* dst = nullptr;
-    int spins = 0;
+    DL_PROFILE_COUNTER(prof_wait, "log_event/reserve-wait");
+    uint64_t wait_t0 = 0;
+    uint32_t yields = 0;
     for (;;) {
         dst = ring->reserve(payload);
         if (dst) break;
-        if (spins < kProducerSpinBeforeSleep) {
-            sched_yield();
-            spins++;
-        } else {
-            struct timespec ts{};
-            ts.tv_nsec = kProducerSleepUs * 1000;
-            clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
-            spins = 0;
-        }
+        if (yields == 0) wait_t0 = DL_PROFILE_NOW();
+        sched_yield();
+        ++yields;
+    }
+    if (yields > 0) {
+        DL_PROFILE_RECORD(prof_wait, DL_PROFILE_NOW() - wait_t0, yields);
+    } else {
+        DL_PROFILE_RECORD(prof_wait, 0, 0);  // 只计 calls，不计 hits
     }
 
-    EventHdrBin hdr{};
-    hdr.ts_ns       = now_ns();
-    hdr.tid         = current_tid();
-    hdr.addr        = reinterpret_cast<uintptr_t>(addr);
-    hdr.rc_or_flags = static_cast<int64_t>(rc_or_flags);
-    hdr.op          = static_cast<uint8_t>(op);
-    hdr.kind        = static_cast<uint8_t>(kind);
-    hdr.frame_cnt   = frame_cnt;
-    std::memcpy(dst, &hdr, sizeof(hdr));
-    if (frame_cnt > 0) {
-        std::memcpy(static_cast<char*>(dst) + sizeof(hdr),
-                    bt.data(), sizeof(uintptr_t) * frame_cnt);
+    {
+        DL_PROFILE_SCOPE("log_event/fill+commit");
+        EventHdrBin hdr{};
+        hdr.ts_ns       = now_ns();
+        hdr.tid         = current_tid();
+        hdr.addr        = reinterpret_cast<uintptr_t>(addr);
+        hdr.rc_or_flags = static_cast<int64_t>(rc_or_flags);
+        hdr.op          = static_cast<uint8_t>(op);
+        hdr.kind        = static_cast<uint8_t>(kind);
+        hdr.frame_cnt   = frame_cnt;
+        std::memcpy(dst, &hdr, sizeof(hdr));
+        if (frame_cnt > 0) {
+            std::memcpy(static_cast<char*>(dst) + sizeof(hdr),
+                        bt.data(), sizeof(uintptr_t) * frame_cnt);
+        }
+        ring->commit();
     }
-    ring->commit();
 }
 
 }  // namespace dl

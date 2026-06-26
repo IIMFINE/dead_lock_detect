@@ -32,8 +32,18 @@ using Clock = std::chrono::steady_clock;
 struct WorkerCtx {
     pthread_mutex_t* mu;       // 指向各自/共享的 mutex
     int iters;
+    int pad_spin;              // 每次 lock 之间的空转次数（制造非 hot-loop 间隔）
     std::vector<uint32_t> ns;  // 每次 lock+unlock 的纳秒数
 };
+
+// 编译器屏障 + volatile 空转，制造几十~几百纳秒的「业务工作」间隔
+static inline void pad_work(int spin) {
+    volatile int sink = 0;
+    for (int i = 0; i < spin; ++i) {
+        sink += i;
+        asm volatile("" ::: "memory");  // 防止被优化掉
+    }
+}
 
 // pthread_create 用的 thunk，避免 std::thread 在某些 PRELOAD 链上引入 wrapper
 void* worker(void* arg) {
@@ -41,7 +51,9 @@ void* worker(void* arg) {
     pthread_mutex_t* m = c->mu;
     uint32_t* out = c->ns.data();
     const int N = c->iters;
+    const int pad = c->pad_spin;
     for (int i = 0; i < N; ++i) {
+        if (pad) pad_work(pad);
         auto t0 = Clock::now();
         pthread_mutex_lock(m);
         pthread_mutex_unlock(m);
@@ -64,6 +76,7 @@ int main(int argc, char** argv) {
     std::string mode = (argc > 1) ? argv[1] : "uncontended";
     int threads     = (argc > 2) ? std::atoi(argv[2]) : 8;
     int iters       = (argc > 3) ? std::atoi(argv[3]) : 200000;
+    int pad_spin    = (argc > 4) ? std::atoi(argv[4]) : 0;
 
     if (mode != "uncontended" && mode != "contended") {
         std::fprintf(stderr, "mode must be uncontended|contended\n");
@@ -80,8 +93,9 @@ int main(int argc, char** argv) {
     // 每线程上下文 + 预分配样本缓存（200k * 4B = 800 KB / 线程，不会进 hot path 分配）
     std::vector<WorkerCtx> ctxs(threads);
     for (int i = 0; i < threads; ++i) {
-        ctxs[i].mu    = (mode == "uncontended") ? &mus[i] : &shared;
-        ctxs[i].iters = iters;
+        ctxs[i].mu       = (mode == "uncontended") ? &mus[i] : &shared;
+        ctxs[i].iters    = iters;
+        ctxs[i].pad_spin = pad_spin;
         ctxs[i].ns.resize(iters);
     }
 
@@ -111,8 +125,8 @@ int main(int argc, char** argv) {
     double avg = static_cast<double>(sum / static_cast<long double>(all.size()));
 
     std::printf("=== bench_prodcons ===\n");
-    std::printf("mode=%s threads=%d iters_per_thread=%d total_ops=%zu\n",
-                mode.c_str(), threads, iters, total);
+    std::printf("mode=%s threads=%d iters_per_thread=%d pad_spin=%d total_ops=%zu\n",
+                mode.c_str(), threads, iters, pad_spin, total);
     std::printf("wall_total : %.3f s   ops_per_sec=%.2f M/s\n",
                 wall_s, total / wall_s / 1e6);
     std::printf("per-op (ns): avg=%.0f  min=%u  p50=%.0f  p90=%.0f  p99=%.0f  p999=%.0f  max=%u\n",

@@ -3,6 +3,7 @@
 #include "bypass.h"
 #include "backtrace.h"
 #include "event_types.h"
+#include "profile.h"
 #include "real_symbols.h"
 
 #include <atomic>
@@ -58,6 +59,7 @@ std::string escape(const std::string& s) {
 // 处理 ring 中一个真事件：peek 头 → peek PC 数组 → consume → symbolize → fwrite v2 文本行。
 // 返回是否消费了一个事件。
 bool process_one_event(ThreadRing* r, FILE* fp) {
+    DL_PROFILE_SCOPE("backend/process_one");
     uint8_t tag = 0;
     while (r->peek_tag(tag) && tag == ThreadRing::kTagSkip) {
         r->skip_padding();
@@ -112,7 +114,11 @@ bool process_one_event(ThreadRing* r, FILE* fp) {
              (unsigned)hdr.frame_cnt);
     out.append(line);
     for (uint16_t i = 0; i < hdr.frame_cnt; ++i) {
-        SymbolInfo s = symbolize(pcs[i]);
+        SymbolInfo s;
+        {
+            DL_PROFILE_SCOPE("symbolize");
+            s = symbolize(pcs[i]);
+        }
         snprintf(line, sizeof(line), "F\t0x%lx\t", (unsigned long)pcs[i]);
         out.append(line);
         out.append(escape(s.function));
@@ -126,7 +132,10 @@ bool process_one_event(ThreadRing* r, FILE* fp) {
         snprintf(line, sizeof(line), "%d\n", s.line);
         out.append(line);
     }
-    fwrite(out.data(), 1, out.size(), fp);
+    {
+        DL_PROFILE_SCOPE("fwrite");
+        fwrite(out.data(), 1, out.size(), fp);
+    }
     return true;
 }
 
@@ -169,7 +178,8 @@ void* backend_main(void* arg) {
     FILE* fp = static_cast<FILE*>(arg);
 
     while (true) {
-        bool did_work = scan_all_rings_once(fp);
+        bool did_work;
+        { DL_PROFILE_SCOPE("backend/scan_round"); did_work = scan_all_rings_once(fp); }
 
         if (g_flush_request.exchange(false, std::memory_order_acq_rel)) {
             fflush(fp);

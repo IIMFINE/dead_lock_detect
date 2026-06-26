@@ -12,6 +12,13 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -fno-omit-frame-pointer)
 
+# 内部耗时埋点开关：cmake -DDL_PROFILE=ON 时打开（默认关闭，零运行时开销）
+option(DL_PROFILE "Enable internal profiling counters" OFF)
+if(DL_PROFILE)
+    add_compile_definitions(DL_PROFILE_ENABLED=1)
+    message(STATUS "DL profiling: ENABLED")
+endif()
+
 # 探测 GCC 自带的 libbacktrace（ libbacktrace.a + backtrace.h，随 gcc 分发）
 find_path(LIBBACKTRACE_INCLUDE_DIR backtrace.h
     HINTS /usr/lib/gcc/x86_64-linux-gnu/11/include
