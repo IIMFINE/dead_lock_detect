@@ -60,7 +60,11 @@ target_link_libraries(deadlock_detect PRIVATE ${LIBBACKTRACE_LIB} pthread dl)
 
 # 离线分析器：独立二进制；只依赖事件类型与 backtrace 帮助
 add_executable(deadlock_analyze
-    src/analyzer_main.cpp
+    src/analyzer/main.cpp
+    src/analyzer/trace_reader.cpp
+    src/analyzer/graph.cpp
+    src/analyzer/cycles.cpp
+    src/analyzer/report.cpp
     src/event_types.cpp
     src/backtrace.cpp
     src/bypass.cpp

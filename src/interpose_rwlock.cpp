@@ -27,7 +27,6 @@ extern "C" int pthread_rwlock_destroy(pthread_rwlock_t* rw) {
 extern "C" int pthread_rwlock_rdlock(pthread_rwlock_t* rw) {
     if (should_bypass()) return real::pthread_rwlock_rdlock(rw);
     ScopedBypass _b;
-    DL_EV(RDLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_rdlock(rw);
     DL_EV(RDLOCK_POST, RWLOCK, rw, rc);
     return rc;
@@ -35,7 +34,6 @@ extern "C" int pthread_rwlock_rdlock(pthread_rwlock_t* rw) {
 extern "C" int pthread_rwlock_tryrdlock(pthread_rwlock_t* rw) {
     if (should_bypass()) return real::pthread_rwlock_tryrdlock(rw);
     ScopedBypass _b;
-    DL_EV(TRYRDLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_tryrdlock(rw);
     DL_EV(TRYRDLOCK_POST, RWLOCK, rw, rc);
     return rc;
@@ -43,7 +41,6 @@ extern "C" int pthread_rwlock_tryrdlock(pthread_rwlock_t* rw) {
 extern "C" int pthread_rwlock_timedrdlock(pthread_rwlock_t* rw, const struct timespec* abs) {
     if (should_bypass()) return real::pthread_rwlock_timedrdlock(rw, abs);
     ScopedBypass _b;
-    DL_EV(TIMEDRDLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_timedrdlock(rw, abs);
     DL_EV(TIMEDRDLOCK_POST, RWLOCK, rw, rc);
     return rc;
@@ -51,7 +48,6 @@ extern "C" int pthread_rwlock_timedrdlock(pthread_rwlock_t* rw, const struct tim
 extern "C" int pthread_rwlock_wrlock(pthread_rwlock_t* rw) {
     if (should_bypass()) return real::pthread_rwlock_wrlock(rw);
     ScopedBypass _b;
-    DL_EV(WRLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_wrlock(rw);
     DL_EV(WRLOCK_POST, RWLOCK, rw, rc);
     return rc;
@@ -59,7 +55,6 @@ extern "C" int pthread_rwlock_wrlock(pthread_rwlock_t* rw) {
 extern "C" int pthread_rwlock_trywrlock(pthread_rwlock_t* rw) {
     if (should_bypass()) return real::pthread_rwlock_trywrlock(rw);
     ScopedBypass _b;
-    DL_EV(TRYWRLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_trywrlock(rw);
     DL_EV(TRYWRLOCK_POST, RWLOCK, rw, rc);
     return rc;
@@ -67,7 +62,6 @@ extern "C" int pthread_rwlock_trywrlock(pthread_rwlock_t* rw) {
 extern "C" int pthread_rwlock_timedwrlock(pthread_rwlock_t* rw, const struct timespec* abs) {
     if (should_bypass()) return real::pthread_rwlock_timedwrlock(rw, abs);
     ScopedBypass _b;
-    DL_EV(TIMEDWRLOCK_PRE, RWLOCK, rw, 0);
     int rc = real::pthread_rwlock_timedwrlock(rw, abs);
     DL_EV(TIMEDWRLOCK_POST, RWLOCK, rw, rc);
     return rc;

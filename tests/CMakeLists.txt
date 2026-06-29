@@ -68,8 +68,9 @@ add_dl_test(test_std_unique_lock_ab_ba  "'-- Cycle'")
 add_dl_test_no_cycle(test_std_scoped_lock)
 add_dl_test_no_cycle(test_std_shared_mutex_read_read)
 
-# 异步管道回归：8 线程 × 100k 次 lock/unlock，断言 trace 中 LOCK_PRE/LOCK_POST 行数对齐
-# op 值参见 src/event_types.h：LOCK_PRE=3, LOCK_POST=4
+# 异步管道回归：8 线程 × 100k 次 lock/unlock，断言 trace 中 LOCK_POST 行数对齐
+# 新数据流不再生成 LOCK_PRE（lock-order inference 不需要），断言只检 POST=4
+# op 值参见 src/event_types.h：LOCK_POST=4
 add_test(NAME test_async_pipeline COMMAND bash -c
     "set -e; \
      mkdir -p ${DL_OUT_DIR}; \
@@ -79,7 +80,7 @@ add_test(NAME test_async_pipeline COMMAND bash -c
      PRE=$(awk -F'\\t' '$1==\"E\" && $4==\"3\"' $TRACE | wc -l); \
      POST=$(awk -F'\\t' '$1==\"E\" && $4==\"4\"' $TRACE | wc -l); \
      echo PRE=$PRE POST=$POST; \
-     [ \"$PRE\" = \"800000\" ] || { echo FAIL pre; exit 1; }; \
+     [ \"$PRE\" = \"0\" ] || { echo FAIL pre should be 0 in new data flow; exit 1; }; \
      [ \"$POST\" = \"800000\" ] || { echo FAIL post; exit 1; }")
 
 # fork 回归：父进程 trace 有事件、子进程不创建独立 trace 也不写父 trace
@@ -105,6 +106,12 @@ add_executable(bench_backtrace bench_backtrace.cpp)
 target_link_libraries(bench_backtrace PRIVATE pthread)
 target_compile_options(bench_backtrace PRIVATE -O2 -fno-omit-frame-pointer)
 set_target_properties(bench_backtrace PROPERTIES ENABLE_EXPORTS ON)
+
+# fp walk 对照测试（dlopen runtime，对比 glibc backtrace）
+add_executable(test_fp_walk test_fp_walk.cpp)
+target_link_libraries(test_fp_walk PRIVATE pthread dl)
+target_compile_options(test_fp_walk PRIVATE -O2 -fno-omit-frame-pointer)
+set_target_properties(test_fp_walk PROPERTIES ENABLE_EXPORTS ON)
 
 # ThreadRing 独立单测（不链接 deadlock_detect）
 add_executable(test_ring_buffer test_ring_buffer.cpp)

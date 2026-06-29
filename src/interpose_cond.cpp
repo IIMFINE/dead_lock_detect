@@ -12,10 +12,9 @@ using namespace dl;
 extern "C" int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) {
     if (should_bypass()) return real::pthread_cond_wait(c, m);
     ScopedBypass _b;
-    // m 的地址随事件写入 rc_or_flags 槽，便于离线分析识别 wait 期间释放的是哪把锁
-    DL_EV(COND_WAIT_PRE, COND, c, (long)reinterpret_cast<uintptr_t>(m));
     int rc = real::pthread_cond_wait(c, m);
-    DL_EV(COND_WAIT_POST, COND, c, rc);
+    // POST 带上 mutex 地址：分析器据此知道 wait 期间临时释放过 m，重新获取后才返回
+    DL_EV(COND_WAIT_POST, COND, c, (long)reinterpret_cast<uintptr_t>(m));
     return rc;
 }
 
@@ -23,8 +22,8 @@ extern "C" int pthread_cond_timedwait(pthread_cond_t* c, pthread_mutex_t* m,
                                       const struct timespec* abs) {
     if (should_bypass()) return real::pthread_cond_timedwait(c, m, abs);
     ScopedBypass _b;
-    DL_EV(COND_TIMEDWAIT_PRE, COND, c, (long)reinterpret_cast<uintptr_t>(m));
     int rc = real::pthread_cond_timedwait(c, m, abs);
-    DL_EV(COND_TIMEDWAIT_POST, COND, c, rc);
+    // 无论 rc 如何都记录：超时返回时 m 也已重新获取
+    DL_EV(COND_TIMEDWAIT_POST, COND, c, (long)reinterpret_cast<uintptr_t>(m));
     return rc;
 }

@@ -12,6 +12,10 @@ using Backtrace = std::vector<uintptr_t>;
 // 抓调用栈：skip 表示跳过顶部 N 帧（通常跳我们的劫持函数）。
 Backtrace capture_backtrace(int skip, int max_depth);
 
+// 快速版：直接写入调用方提供的栈上数组，避免堆分配。返回写入帧数。
+// 实现走 frame pointer（要求编译时 -fno-omit-frame-pointer）。
+size_t capture_backtrace_fast(int skip, int max_depth, uintptr_t* out, size_t out_cap);
+
 struct SymbolInfo {
     std::string module;        // .so / 可执行文件路径（basename）
     std::string function;      // 已 demangle 的函数名；若无则 "??"

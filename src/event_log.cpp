@@ -113,12 +113,16 @@ void log_event(EvOp op, EvKind kind, const void* addr,
     ScopedBypass _bp;
     DL_PROFILE_SCOPE("log_event/total");
 
-    Backtrace bt;
+    // 栈上数组接 backtrace，避免 std::vector 堆分配
+    constexpr int kMaxFramesInline = 64;
+    uintptr_t pcs[kMaxFramesInline];
+    int cap = frame_depth < kMaxFramesInline ? frame_depth : kMaxFramesInline;
+    size_t got = 0;
     {
         DL_PROFILE_SCOPE("log_event/backtrace");
-        bt = capture_backtrace(frame_skip, frame_depth);
+        got = capture_backtrace_fast(frame_skip, cap, pcs, kMaxFramesInline);
     }
-    uint16_t frame_cnt = static_cast<uint16_t>(bt.size());
+    uint16_t frame_cnt = static_cast<uint16_t>(got);
 
     ThreadRing* ring;
     {
@@ -159,7 +163,7 @@ void log_event(EvOp op, EvKind kind, const void* addr,
         std::memcpy(dst, &hdr, sizeof(hdr));
         if (frame_cnt > 0) {
             std::memcpy(static_cast<char*>(dst) + sizeof(hdr),
-                        bt.data(), sizeof(uintptr_t) * frame_cnt);
+                        pcs, sizeof(uintptr_t) * frame_cnt);
         }
         ring->commit();
     }
