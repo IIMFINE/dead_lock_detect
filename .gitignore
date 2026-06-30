@@ -74,3 +74,9 @@ deadlock_*.trace
 output/
 test_output/
 dead_lock_detect_result-*/
+
+# Python analyzer
+analyzer/.venv/
+__pycache__/
+*.pyc
+*.pyo

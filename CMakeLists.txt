@@ -40,19 +40,8 @@ set_target_properties(deadlock_detect PROPERTIES OUTPUT_NAME deadlock_detect)
 target_link_options(deadlock_detect PRIVATE -Wl,--no-undefined -Wl,-z,now -rdynamic)
 target_link_libraries(deadlock_detect PRIVATE pthread dl)
 
-# 离线分析器：v3 trace -> graph -> 报告。符号化用外部 addr2line（popen 调用），
-# 这里只链接系统基础库。
-add_executable(deadlock_analyze
-    src/analyzer/main.cpp
-    src/analyzer/trace_reader.cpp
-    src/analyzer/graph.cpp
-    src/analyzer/cycles.cpp
-    src/analyzer/report.cpp
-    src/analyzer/symbolizer.cpp
-    src/event_types.cpp
-)
-set_target_properties(deadlock_analyze PROPERTIES ENABLE_EXPORTS ON)
-target_link_libraries(deadlock_analyze PRIVATE pthread dl)
+# 离线分析器现在是 analyzer/ 下的 Python 实现（dl_analyzer 包 + wrapper 脚本），
+# 不再由 CMake 构建。tests/ 通过 wrapper 调用即可。
 
 enable_testing()
 add_subdirectory(tests)

@@ -23,7 +23,8 @@ foreach(t ${TESTS})
 endforeach()
 
 set(LIB_PATH $<TARGET_FILE:deadlock_detect>)
-set(ANALYZER $<TARGET_FILE:deadlock_analyze>)
+# 分析器现在是项目内的 Python 包：analyzer/deadlock_analyze（bash wrapper）
+set(ANALYZER "${CMAKE_SOURCE_DIR}/analyzer/deadlock_analyze")
 set(DL_OUT_DIR "/tmp/dead_lock_detect")
 
 # 每个用例：先用 LD_PRELOAD 跑被测程序产生 trace，再调用分析器生成报告，再 grep 断言

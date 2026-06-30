@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Wrapper：用项目内的 venv 跑 Python 版 analyzer。
+# 等价于原 C++ 二进制 build/deadlock_analyze；CMake tests/ 通过这个脚本调用。
+#
+# 用法：deadlock_analyze [options] <event-file>
+set -e
+
+# 解析自身真实路径（处理符号链接）
+SCRIPT="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT" ]; do
+    DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+    SCRIPT="$(readlink "$SCRIPT")"
+    [[ "$SCRIPT" != /* ]] && SCRIPT="$DIR/$SCRIPT"
+done
+DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+
+VENV_PY="$DIR/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
+    echo "[deadlock_analyze] missing venv at $DIR/.venv; run: python3.10 -m venv $DIR/.venv" >&2
+    exit 1
+fi
+
+# dl_analyzer 包放在 analyzer/ 下，没有走 pip install，靠 PYTHONPATH 暴露。
+export PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}"
+exec "$VENV_PY" -m dl_analyzer "$@"
