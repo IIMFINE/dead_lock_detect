@@ -1,7 +1,6 @@
 #include "backend.h"
 #include "ring_buffer.h"
 #include "bypass.h"
-#include "backtrace.h"
 #include "event_types.h"
 #include "profile.h"
 #include "real_symbols.h"
@@ -42,21 +41,8 @@ std::atomic<bool> g_flush_request{false};
 pthread_mutex_t g_registry_mu = PTHREAD_MUTEX_INITIALIZER;
 ThreadRing* g_registry_head = nullptr;  // 头插单链表
 
-std::string escape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '\\': out += "\\\\"; break;
-            case '\t': out += "\\t";  break;
-            case '\n': out += "\\n";  break;
-            default:   out += c;
-        }
-    }
-    return out;
-}
-
-// 处理 ring 中一个真事件：peek 头 → peek PC 数组 → consume → symbolize → fwrite v2 文本行。
+// 处理 ring 中一个真事件：peek 头 → peek PC 数组 → consume → fwrite v3 文本行。
+// v3 格式下 backend 不再做符号化，F 行只写一个 PC，符号化全部留给离线 analyzer。
 // 返回是否消费了一个事件。
 bool process_one_event(ThreadRing* r, FILE* fp) {
     DL_PROFILE_SCOPE("backend/process_one");
@@ -99,10 +85,10 @@ bool process_one_event(ThreadRing* r, FILE* fp) {
     }
     r->consume_event(payload);
 
-    // 拼并写 v2 文本（同步代码原版）
+    // 拼并写 v3 文本：E 行 + 每个 PC 一行 F。符号化由 analyzer 离线完成。
     std::string out;
-    out.reserve(256 + hdr.frame_cnt * 96);
-    char line[256];
+    out.reserve(64 + hdr.frame_cnt * 24);
+    char line[128];
     snprintf(line, sizeof(line),
              "E\t%lu\t%lu\t%d\t%d\t0x%lx\t%ld\t%u\n",
              (unsigned long)hdr.ts_ns,
@@ -114,22 +100,7 @@ bool process_one_event(ThreadRing* r, FILE* fp) {
              (unsigned)hdr.frame_cnt);
     out.append(line);
     for (uint16_t i = 0; i < hdr.frame_cnt; ++i) {
-        SymbolInfo s;
-        {
-            DL_PROFILE_SCOPE("symbolize");
-            s = symbolize(pcs[i]);
-        }
-        snprintf(line, sizeof(line), "F\t0x%lx\t", (unsigned long)pcs[i]);
-        out.append(line);
-        out.append(escape(s.function));
-        out.append("\t");
-        out.append(escape(s.module));
-        out.append("\t");
-        snprintf(line, sizeof(line), "0x%lx\t", (unsigned long)s.offset);
-        out.append(line);
-        out.append(escape(s.file));
-        out.append("\t");
-        snprintf(line, sizeof(line), "%d\n", s.line);
+        snprintf(line, sizeof(line), "F\t0x%lx\n", (unsigned long)pcs[i]);
         out.append(line);
     }
     {

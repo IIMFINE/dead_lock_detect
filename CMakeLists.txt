@@ -19,25 +19,7 @@ if(DL_PROFILE)
     message(STATUS "DL profiling: ENABLED")
 endif()
 
-# 探测 GCC 自带的 libbacktrace（ libbacktrace.a + backtrace.h，随 gcc 分发）
-find_path(LIBBACKTRACE_INCLUDE_DIR backtrace.h
-    HINTS /usr/lib/gcc/x86_64-linux-gnu/11/include
-          /usr/lib/gcc/x86_64-linux-gnu/12/include
-          /usr/lib/gcc/x86_64-linux-gnu/13/include
-          /usr/lib/gcc/x86_64-linux-gnu/14/include
-          /usr/include)
-find_library(LIBBACKTRACE_LIB NAMES backtrace
-    HINTS /usr/lib/gcc/x86_64-linux-gnu/11
-          /usr/lib/gcc/x86_64-linux-gnu/12
-          /usr/lib/gcc/x86_64-linux-gnu/13
-          /usr/lib/gcc/x86_64-linux-gnu/14
-          /usr/lib/x86_64-linux-gnu)
-if(NOT LIBBACKTRACE_INCLUDE_DIR OR NOT LIBBACKTRACE_LIB)
-    message(FATAL_ERROR "libbacktrace not found (expected GCC's libbacktrace.a + backtrace.h)")
-endif()
-message(STATUS "libbacktrace: ${LIBBACKTRACE_LIB} (inc=${LIBBACKTRACE_INCLUDE_DIR})")
-
-# runtime：仅采集事件
+# runtime：仅采集事件。符号化已挪到离线 analyzer，runtime 不再依赖 libbacktrace。
 add_library(deadlock_detect SHARED
     src/real_symbols.cpp
     src/backtrace.cpp
@@ -47,6 +29,7 @@ add_library(deadlock_detect SHARED
     src/event_types.cpp
     src/event_log.cpp
     src/backend.cpp
+    src/module_map.cpp
     src/interpose_mutex.cpp
     src/interpose_rwlock.cpp
     src/interpose_spin.cpp
@@ -54,26 +37,22 @@ add_library(deadlock_detect SHARED
     src/lib_init.cpp
 )
 set_target_properties(deadlock_detect PROPERTIES OUTPUT_NAME deadlock_detect)
-target_include_directories(deadlock_detect PRIVATE ${LIBBACKTRACE_INCLUDE_DIR})
 target_link_options(deadlock_detect PRIVATE -Wl,--no-undefined -Wl,-z,now -rdynamic)
-target_link_libraries(deadlock_detect PRIVATE ${LIBBACKTRACE_LIB} pthread dl)
+target_link_libraries(deadlock_detect PRIVATE pthread dl)
 
-# 离线分析器：独立二进制；只依赖事件类型与 backtrace 帮助
+# 离线分析器：v3 trace -> graph -> 报告。符号化用外部 addr2line（popen 调用），
+# 这里只链接系统基础库。
 add_executable(deadlock_analyze
     src/analyzer/main.cpp
     src/analyzer/trace_reader.cpp
     src/analyzer/graph.cpp
     src/analyzer/cycles.cpp
     src/analyzer/report.cpp
+    src/analyzer/symbolizer.cpp
     src/event_types.cpp
-    src/backtrace.cpp
-    src/bypass.cpp
-    src/config.cpp
-    src/real_symbols.cpp  # backtrace.cpp 引用了 real::，但分析器自身不用劫持；链接需要
 )
 set_target_properties(deadlock_analyze PROPERTIES ENABLE_EXPORTS ON)
-target_include_directories(deadlock_analyze PRIVATE ${LIBBACKTRACE_INCLUDE_DIR})
-target_link_libraries(deadlock_analyze PRIVATE ${LIBBACKTRACE_LIB} pthread dl)
+target_link_libraries(deadlock_analyze PRIVATE pthread dl)
 
 enable_testing()
 add_subdirectory(tests)

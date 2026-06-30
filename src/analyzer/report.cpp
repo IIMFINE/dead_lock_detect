@@ -14,21 +14,23 @@ void print_bt(std::ostream& o, const Bt& bt, const char* indent) {
     char line[1024];
     for (size_t i = 0; i < bt.size(); ++i) {
         const auto& f = bt[i];
+        // f.offset 现在是"模块内偏移"（PC - module.base），用 (module+0x..) 表达，
+        // 跟 addr2line 的输入对齐；func 单列输出，未知时显示 "??"。
+        const char* func = f.func.empty() ? "??" : f.func.c_str();
+        const char* mod  = f.module.empty() ? "??" : f.module.c_str();
         if (!f.file.empty()) {
             const char* fname = f.file.c_str();
             const char* slash = strrchr(fname, '/');
             snprintf(line, sizeof(line),
-                     "%s#%zu  0x%016lx  %s+0x%lx  (%s)  at %s:%d\n",
+                     "%s#%zu  0x%016lx  %s  (%s+0x%lx)  at %s:%d\n",
                      indent, i, (unsigned long)f.pc,
-                     f.func.c_str(), (unsigned long)f.offset,
-                     f.module.c_str(),
+                     func, mod, (unsigned long)f.offset,
                      slash ? slash + 1 : fname, f.line);
         } else {
             snprintf(line, sizeof(line),
-                     "%s#%zu  0x%016lx  %s+0x%lx  (%s)\n",
+                     "%s#%zu  0x%016lx  %s  (%s+0x%lx)\n",
                      indent, i, (unsigned long)f.pc,
-                     f.func.c_str(), (unsigned long)f.offset,
-                     f.module.c_str());
+                     func, mod, (unsigned long)f.offset);
         }
         o << line;
     }

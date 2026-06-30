@@ -3,6 +3,7 @@
 #include "backtrace.h"
 #include "bypass.h"
 #include "config.h"
+#include "module_map.h"
 #include "profile.h"
 #include "real_symbols.h"
 #include "ring_buffer.h"
@@ -64,7 +65,9 @@ void log_init(const char* path) {
         return;
     }
     setvbuf(g_fp, nullptr, _IOFBF, 1 << 20);
-    fprintf(g_fp, "HEADER\tDEADLOCK_EVENTS\tv2\tpid=%d\n", getpid());
+    fprintf(g_fp, "HEADER\tDEADLOCK_EVENTS\tv3\tpid=%d\n", getpid());
+    // 立刻 dump 模块表：离线 analyzer 用它把 PC 反解回 (module, offset)。
+    dump_module_map(g_fp);
     fprintf(stderr, "[deadlock] event log: %s\n", final_path);
 
     if (!backend_start(g_fp)) {

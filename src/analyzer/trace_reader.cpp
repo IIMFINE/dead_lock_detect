@@ -1,5 +1,6 @@
 #include "trace_reader.h"
 
+#include <algorithm>
 #include <istream>
 #include <string>
 #include <utility>
@@ -19,22 +20,6 @@ std::vector<std::string> split_tab(const std::string& line) {
     return parts;
 }
 
-std::string unescape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.size()) {
-            char n = s[i + 1];
-            if (n == '\\') out += '\\';
-            else if (n == 't') out += '\t';
-            else if (n == 'n') out += '\n';
-            else { out += s[i]; out += n; }
-            ++i;
-        } else out += s[i];
-    }
-    return out;
-}
-
 bool parse_hex(const std::string& s, uintptr_t& out) {
     size_t off = 0;
     if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) off = 2;
@@ -52,45 +37,66 @@ bool parse_hex(const std::string& s, uintptr_t& out) {
 
 }  // namespace
 
-bool read_events(std::istream& in, int& pid_out, std::vector<Event>& out) {
+bool read_trace(std::istream& in, int& pid_out,
+                ModuleMap& modules_out,
+                std::vector<Event>& events_out) {
     std::string line;
     if (!std::getline(in, line)) return false;
     auto parts = split_tab(line);
     if (parts.size() < 3 || parts[0] != "HEADER" || parts[1] != "DEADLOCK_EVENTS")
         return false;
+    // 严格要求 v3：trace 格式已不再带在线符号化字段，旧版本无法直接消费。
+    if (parts[2] != "v3") return false;
     pid_out = 0;
     for (auto& p : parts) if (p.rfind("pid=", 0) == 0) pid_out = std::stoi(p.substr(4));
 
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         auto p = split_tab(line);
-        if (p.size() < 8 || p[0] != "E") continue;
+        if (p.empty()) continue;
+
+        if (p[0] == "M") {
+            // M\t<idx>\t<base>\t<size>\t<build-id|->\t<path>
+            if (p.size() < 6) continue;
+            Module m;
+            try { m.idx = std::stoi(p[1]); } catch (...) { continue; }
+            if (!parse_hex(p[2], m.base)) continue;
+            if (!parse_hex(p[3], m.size)) continue;
+            m.build_id = p[4];
+            m.path     = p[5];
+            modules_out.push_back(std::move(m));
+            continue;
+        }
+
+        if (p[0] != "E") continue;
+        if (p.size() < 8) continue;
         Event ev;
-        ev.ts_ns = std::stoull(p[1]);
-        ev.tid   = std::stoull(p[2]);
-        ev.op    = static_cast<EvOp>(std::stoi(p[3]));
-        ev.kind  = static_cast<EvKind>(std::stoi(p[4]));
-        parse_hex(p[5], ev.addr);
-        ev.rc    = std::stol(p[6]);
-        size_t nf = std::stoul(p[7]);
+        try {
+            ev.ts_ns = std::stoull(p[1]);
+            ev.tid   = std::stoull(p[2]);
+            ev.op    = static_cast<EvOp>(std::stoi(p[3]));
+            ev.kind  = static_cast<EvKind>(std::stoi(p[4]));
+        } catch (...) { continue; }
+        if (!parse_hex(p[5], ev.addr)) continue;
+        try { ev.rc = std::stol(p[6]); } catch (...) { ev.rc = 0; }
+        size_t nf = 0;
+        try { nf = std::stoul(p[7]); } catch (...) { continue; }
         ev.bt.reserve(nf);
         for (size_t i = 0; i < nf; ++i) {
             if (!std::getline(in, line)) break;
             auto fp = split_tab(line);
-            if (fp.size() < 5 || fp[0] != "F") break;
+            // v3: F\t<pc>
+            if (fp.size() < 2 || fp[0] != "F") break;
             Frame f;
-            parse_hex(fp[1], f.pc);
-            f.func   = unescape(fp[2]);
-            f.module = unescape(fp[3]);
-            parse_hex(fp[4], f.offset);
-            if (fp.size() >= 7) {
-                f.file = unescape(fp[5]);
-                try { f.line = std::stoi(fp[6]); } catch (...) { f.line = 0; }
-            }
+            if (!parse_hex(fp[1], f.pc)) continue;
             ev.bt.push_back(std::move(f));
         }
-        out.push_back(std::move(ev));
+        events_out.push_back(std::move(ev));
     }
+
+    // 按 base 排序，方便后续按 PC 二分查找
+    std::sort(modules_out.begin(), modules_out.end(),
+              [](const Module& a, const Module& b) { return a.base < b.base; });
     return true;
 }
 

@@ -1,10 +1,9 @@
 #pragma once
 //
-// Analyzer 内部共享类型：锁标识、元数据、持锁栈节点、边、事件。
+// Analyzer 内部共享类型：锁标识、元数据、持锁栈节点、边、事件、模块表。
 // 全部在 dl::analyzer 命名空间，避免与 runtime 重名。
 
 #include "../event_types.h"
-#include "../backtrace.h"   // 复用 Frame? 不，runtime 的 SymbolInfo 不一样；analyzer 内自己定义
 
 #include <cstdint>
 #include <functional>
@@ -14,15 +13,28 @@
 
 namespace dl::analyzer {
 
+// 一帧调用栈。trace_reader 只填 pc；symbolizer 跑完后回填其余字段。
 struct Frame {
     uintptr_t pc = 0;
     std::string func;
-    std::string module;
-    uintptr_t offset = 0;
+    std::string module;     // 模块 basename（如 libdeadlock_detect.so）
+    uintptr_t offset = 0;   // 模块内偏移 = pc - module.base
     std::string file;
     int line = 0;
 };
 using Bt = std::vector<Frame>;
+
+// trace 头部记录的模块映射（一次进程快照）。analyzer 用 base/size 做 PC 归属判断，
+// 用 path 喂给 addr2line 做符号化。build_id 来自 PT_NOTE/NT_GNU_BUILD_ID，目前
+// 仅做记录、未用于符号文件路径校验。
+struct Module {
+    int          idx = 0;
+    uintptr_t    base = 0;
+    uintptr_t    size = 0;
+    std::string  build_id;   // "-" 表示缺失
+    std::string  path;       // trace 里记的绝对路径；可能在 analyzer 机器上不存在
+};
+using ModuleMap = std::vector<Module>;   // 按 base 升序，供二分查找
 
 enum class LockKind : uint8_t { Mutex, RwlockRd, RwlockWr, Spin };
 const char* kind_name(LockKind k);
