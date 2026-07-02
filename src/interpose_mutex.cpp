@@ -11,6 +11,10 @@
 using namespace dl;
 
 extern "C" int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t* attr) {
+    // 如果 real 函数指针还未初始化，先初始化（处理早期调用）
+    if (!real::pthread_mutex_init) {
+        real::init_once();
+    }
     if (should_bypass()) return real::pthread_mutex_init(m, attr);
     ScopedBypass _b;
     int rc = real::pthread_mutex_init(m, attr);
@@ -25,6 +29,7 @@ extern "C" int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t*
 }
 
 extern "C" int pthread_mutex_destroy(pthread_mutex_t* m) {
+    if (!real::pthread_mutex_destroy) real::init_once();
     if (should_bypass()) return real::pthread_mutex_destroy(m);
     ScopedBypass _b;
     DL_EV(DESTROY, MUTEX, m, 0);
@@ -32,6 +37,7 @@ extern "C" int pthread_mutex_destroy(pthread_mutex_t* m) {
 }
 
 extern "C" int pthread_mutex_lock(pthread_mutex_t* m) {
+    if (!real::pthread_mutex_lock) real::init_once();
     if (should_bypass()) return real::pthread_mutex_lock(m);
     DL_PROFILE_SCOPE("wrap/mutex_lock");
     ScopedBypass _b;
@@ -42,6 +48,7 @@ extern "C" int pthread_mutex_lock(pthread_mutex_t* m) {
 }
 
 extern "C" int pthread_mutex_trylock(pthread_mutex_t* m) {
+    if (!real::pthread_mutex_trylock) real::init_once();
     if (should_bypass()) return real::pthread_mutex_trylock(m);
     ScopedBypass _b;
     int rc = real::pthread_mutex_trylock(m);
@@ -52,6 +59,7 @@ extern "C" int pthread_mutex_trylock(pthread_mutex_t* m) {
 }
 
 extern "C" int pthread_mutex_timedlock(pthread_mutex_t* m, const struct timespec* abs) {
+    if (!real::pthread_mutex_timedlock) real::init_once();
     if (should_bypass()) return real::pthread_mutex_timedlock(m, abs);
     ScopedBypass _b;
     int rc = real::pthread_mutex_timedlock(m, abs);
@@ -61,6 +69,7 @@ extern "C" int pthread_mutex_timedlock(pthread_mutex_t* m, const struct timespec
 }
 
 extern "C" int pthread_mutex_unlock(pthread_mutex_t* m) {
+    if (!real::pthread_mutex_unlock) real::init_once();
     if (should_bypass()) return real::pthread_mutex_unlock(m);
     DL_PROFILE_SCOPE("wrap/mutex_unlock");
     ScopedBypass _b;

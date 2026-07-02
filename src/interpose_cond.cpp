@@ -10,6 +10,7 @@
 using namespace dl;
 
 extern "C" int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) {
+    if (!real::pthread_cond_wait) real::init_once();
     if (should_bypass()) return real::pthread_cond_wait(c, m);
     ScopedBypass _b;
     int rc = real::pthread_cond_wait(c, m);
@@ -20,6 +21,7 @@ extern "C" int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) {
 
 extern "C" int pthread_cond_timedwait(pthread_cond_t* c, pthread_mutex_t* m,
                                       const struct timespec* abs) {
+    if (!real::pthread_cond_timedwait) real::init_once();
     if (should_bypass()) return real::pthread_cond_timedwait(c, m, abs);
     ScopedBypass _b;
     int rc = real::pthread_cond_timedwait(c, m, abs);

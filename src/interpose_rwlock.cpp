@@ -10,6 +10,7 @@
 using namespace dl;
 
 extern "C" int pthread_rwlock_init(pthread_rwlock_t* rw, const pthread_rwlockattr_t* attr) {
+    if (!real::pthread_rwlock_init) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_init(rw, attr);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_init(rw, attr);
@@ -18,6 +19,7 @@ extern "C" int pthread_rwlock_init(pthread_rwlock_t* rw, const pthread_rwlockatt
 }
 
 extern "C" int pthread_rwlock_destroy(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_destroy) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_destroy(rw);
     ScopedBypass _b;
     DL_EV(DESTROY, RWLOCK, rw, 0);
@@ -25,6 +27,7 @@ extern "C" int pthread_rwlock_destroy(pthread_rwlock_t* rw) {
 }
 
 extern "C" int pthread_rwlock_rdlock(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_rdlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_rdlock(rw);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_rdlock(rw);
@@ -32,6 +35,7 @@ extern "C" int pthread_rwlock_rdlock(pthread_rwlock_t* rw) {
     return rc;
 }
 extern "C" int pthread_rwlock_tryrdlock(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_tryrdlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_tryrdlock(rw);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_tryrdlock(rw);
@@ -39,6 +43,7 @@ extern "C" int pthread_rwlock_tryrdlock(pthread_rwlock_t* rw) {
     return rc;
 }
 extern "C" int pthread_rwlock_timedrdlock(pthread_rwlock_t* rw, const struct timespec* abs) {
+    if (!real::pthread_rwlock_timedrdlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_timedrdlock(rw, abs);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_timedrdlock(rw, abs);
@@ -46,6 +51,7 @@ extern "C" int pthread_rwlock_timedrdlock(pthread_rwlock_t* rw, const struct tim
     return rc;
 }
 extern "C" int pthread_rwlock_wrlock(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_wrlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_wrlock(rw);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_wrlock(rw);
@@ -53,6 +59,7 @@ extern "C" int pthread_rwlock_wrlock(pthread_rwlock_t* rw) {
     return rc;
 }
 extern "C" int pthread_rwlock_trywrlock(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_trywrlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_trywrlock(rw);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_trywrlock(rw);
@@ -60,6 +67,7 @@ extern "C" int pthread_rwlock_trywrlock(pthread_rwlock_t* rw) {
     return rc;
 }
 extern "C" int pthread_rwlock_timedwrlock(pthread_rwlock_t* rw, const struct timespec* abs) {
+    if (!real::pthread_rwlock_timedwrlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_timedwrlock(rw, abs);
     ScopedBypass _b;
     int rc = real::pthread_rwlock_timedwrlock(rw, abs);
@@ -68,6 +76,7 @@ extern "C" int pthread_rwlock_timedwrlock(pthread_rwlock_t* rw, const struct tim
 }
 
 extern "C" int pthread_rwlock_unlock(pthread_rwlock_t* rw) {
+    if (!real::pthread_rwlock_unlock) real::init_once();
     if (should_bypass()) return real::pthread_rwlock_unlock(rw);
     ScopedBypass _b;
     DL_EV(UNLOCK, RWLOCK, rw, 0);

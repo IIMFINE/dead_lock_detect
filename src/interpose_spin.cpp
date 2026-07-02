@@ -13,6 +13,7 @@ static const void* strip_v(pthread_spinlock_t* s) {
 }
 
 extern "C" int pthread_spin_init(pthread_spinlock_t* s, int pshared) {
+    if (!real::pthread_spin_init) real::init_once();
     if (should_bypass()) return real::pthread_spin_init(s, pshared);
     ScopedBypass _b;
     int rc = real::pthread_spin_init(s, pshared);
@@ -21,6 +22,7 @@ extern "C" int pthread_spin_init(pthread_spinlock_t* s, int pshared) {
 }
 
 extern "C" int pthread_spin_destroy(pthread_spinlock_t* s) {
+    if (!real::pthread_spin_destroy) real::init_once();
     if (should_bypass()) return real::pthread_spin_destroy(s);
     ScopedBypass _b;
     DL_EV(DESTROY, SPIN, strip_v(s), 0);
@@ -28,6 +30,7 @@ extern "C" int pthread_spin_destroy(pthread_spinlock_t* s) {
 }
 
 extern "C" int pthread_spin_lock(pthread_spinlock_t* s) {
+    if (!real::pthread_spin_lock) real::init_once();
     if (should_bypass()) return real::pthread_spin_lock(s);
     ScopedBypass _b;
     int rc = real::pthread_spin_lock(s);
@@ -35,6 +38,7 @@ extern "C" int pthread_spin_lock(pthread_spinlock_t* s) {
     return rc;
 }
 extern "C" int pthread_spin_trylock(pthread_spinlock_t* s) {
+    if (!real::pthread_spin_trylock) real::init_once();
     if (should_bypass()) return real::pthread_spin_trylock(s);
     ScopedBypass _b;
     int rc = real::pthread_spin_trylock(s);
@@ -43,6 +47,7 @@ extern "C" int pthread_spin_trylock(pthread_spinlock_t* s) {
 }
 
 extern "C" int pthread_spin_unlock(pthread_spinlock_t* s) {
+    if (!real::pthread_spin_unlock) real::init_once();
     if (should_bypass()) return real::pthread_spin_unlock(s);
     ScopedBypass _b;
     DL_EV(UNLOCK, SPIN, strip_v(s), 0);
