@@ -10,12 +10,44 @@
 
 from __future__ import annotations
 
-from typing import IO, List
+from typing import IO, List, Dict
 
 from .cycles import Cycle, find_cycles
 from .events import LockKind, kind_name
 from .graph import Graph
-from .types import Bt
+from .types import Bt, LockId
+
+
+# 用于可视化的图标列表
+_LOCK_ICONS = [
+    "🚗", "🏁", "🚀", "⭐", "🔒", "🔑", "🎯", "🎨", "🎪", "🎭",
+    "🎮", "🎲", "🎰", "🎸", "🎺", "🎻", "🎼", "🎾", "🏀", "🏈",
+    "⚽", "⚾", "🏐", "🏉", "🎱", "🏓", "🏸", "🏒", "🏑", "🥅",
+    "🏹", "🎣", "🥊", "🥋", "🥌", "⛳", "⛸️", "🎿", "⛷️", "🏂",
+    "🏋️", "🤸", "🤼", "🤽", "🤾", "🤺", "🥇", "🥈", "🥉", "🏆",
+]
+
+
+def _get_lock_icon_map(cycles: List[Cycle]) -> Dict[LockId, str]:
+    """为所有出现的锁分配图标"""
+    seen_locks = set()
+    for cy in cycles:
+        for e in cy.edges:
+            seen_locks.add(e.frm)
+            seen_locks.add(e.to)
+
+    sorted_locks = sorted(seen_locks, key=lambda x: (x.addr, x.gen))
+    icon_map = {}
+    for i, lock in enumerate(sorted_locks):
+        icon_map[lock] = _LOCK_ICONS[i % len(_LOCK_ICONS)]
+
+    return icon_map
+
+
+def _format_lock_with_icon(lock_id: LockId, icon_map: Dict[LockId, str], kind: LockKind) -> str:
+    """格式化锁信息，带图标"""
+    icon = icon_map.get(lock_id, "🔒")
+    return f"{icon} Lock 0x{lock_id.addr:x} [{kind_name(kind)}] gen={lock_id.gen}"
 
 
 def _print_bt(out: IO[str], bt: Bt, indent: str) -> None:
@@ -61,28 +93,39 @@ def report(out: IO[str], g: Graph, rwlock_strict: bool, max_per_scc: int) -> int
         out.write("(no cycles detected)\n=== End Report ===\n")
         return 0
 
+    # 为锁分配图标
+    icon_map = _get_lock_icon_map(cycles)
+
+    # 输出图标映射表
+    out.write("\n📋 Lock Icon Mapping:\n")
+    sorted_locks = sorted(icon_map.items(), key=lambda x: (x[0].addr, x[0].gen))
+    for lock_id, icon in sorted_locks:
+        mit = g.meta.get(lock_id)
+        kind = mit.kind if mit else LockKind.MUTEX
+        out.write(f"  {icon} = 0x{lock_id.addr:x} [{kind_name(kind)}] gen={lock_id.gen}\n")
+    out.write("\n")
+
     for ci, cy in enumerate(cycles, start=1):
         out.write(f"\n-- Cycle #{ci} (length={len(cy.edges)}) --\n")
         for e in cy.edges:
             mit = g.meta.get(e.frm)
             if mit is None:
                 continue
-            out.write(
-                f"  Lock 0x{e.frm.addr:x} [{kind_name(e.info.from_kind)}] "
-                f"gen={e.frm.gen}\n"
-            )
+            out.write(f"  {_format_lock_with_icon(e.frm, icon_map, e.info.from_kind)}\n")
             if mit.init_bt:
                 out.write("    init at:\n")
                 _print_bt(out, mit.init_bt, "      ")
         for e in cy.edges:
+            from_icon = icon_map.get(e.frm, "🔒")
+            to_icon = icon_map.get(e.to, "🔒")
             out.write(
-                f"  Edge 0x{e.frm.addr:x} [{kind_name(e.info.from_kind)}] -> "
-                f"0x{e.to.addr:x} [{kind_name(e.info.to_kind)}]   "
+                f"  Edge {from_icon} 0x{e.frm.addr:x} [{kind_name(e.info.from_kind)}] "
+                f"-> {to_icon} 0x{e.to.addr:x} [{kind_name(e.info.to_kind)}]   "
                 f"tid={e.info.tid}\n"
             )
-            out.write(f"    holding 0x{e.frm.addr:x} at:\n")
+            out.write(f"    holding {from_icon} 0x{e.frm.addr:x} at:\n")
             _print_bt(out, e.info.bt_from, "      ")
-            out.write(f"    requesting 0x{e.to.addr:x} at:\n")
+            out.write(f"    requesting {to_icon} 0x{e.to.addr:x} at:\n")
             _print_bt(out, e.info.bt_to, "      ")
     out.write("=== End Report ===\n")
     return len(cycles)
