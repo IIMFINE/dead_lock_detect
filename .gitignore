@@ -80,3 +80,7 @@ analyzer/.venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Examples and temp files
+examples/
+temp/
